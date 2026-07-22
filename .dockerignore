@@ -1,0 +1,13 @@
+venv/
+venv_linux/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+.git/
+.pytest_cache/
+tests/
+server.log
