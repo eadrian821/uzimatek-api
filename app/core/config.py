@@ -150,6 +150,9 @@ class Settings(BaseSettings):
     enable_slack: bool = True
     enable_medical_brain: bool = True
     
+    # CORS — comma-separated list of allowed origins, or "*" for all
+    allowed_origins: str = "*"
+
     # Monitoring
     sentry_dsn: Optional[str] = None
     log_level: str = "INFO"

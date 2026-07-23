@@ -165,7 +165,7 @@ async def run_pipeline(req: ClaimRequest) -> AsyncIterator[str]:
         yield _sse("RI_COMPLETED", {
             "claim_id": claim_id,
             "expected_approval_rate": ri.expected_approval_rate,
-            "expected_payment_kes": ri.expected_payment_amount,
+            "expected_payment_amount": ri.expected_payment_amount,
             "expected_days_to_payment": ri.expected_days_to_payment,
             "tips": ri.revenue_optimization_tips,
             "appeal_strategy": ri.appeal_strategy,

@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     tesseract-ocr \
     poppler-utils \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for caching
