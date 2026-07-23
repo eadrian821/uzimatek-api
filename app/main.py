@@ -83,9 +83,12 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(telegram_long_polling())
         logger.info("Started Telegram long-polling loop")
 
-    # 1. Initialize memory services (Qdrant collections created here)
-    await memory.connect()
-    logger.info("Memory services connected — all Qdrant collections initialized")
+    # 1. Initialize memory services (Qdrant collections created here) — skip if not configured
+    if settings.qdrant_url:
+        await memory.connect()
+        logger.info("Memory services connected — all Qdrant collections initialized")
+    else:
+        logger.info("Qdrant not configured — memory services skipped (SHA-only mode)")
     
     # 2. Register standard agents
     if settings.enable_medical_agent:
@@ -96,8 +99,8 @@ async def lifespan(app: FastAPI):
         orchestrator.register_agent("business", BusinessAgent())
     orchestrator.register_agent("pa", PAAgent())
     
-    # 3. Register medical brain agents
-    if settings.enable_medical_brain:
+    # 3. Register medical brain agents — requires Qdrant to be configured
+    if settings.enable_medical_brain and settings.qdrant_url:
         brain_service = BrainService()
         orchestrator.register_agent("delta", DeltaAgent())
         orchestrator.register_agent("atomization", AtomizationAgent())
@@ -105,6 +108,8 @@ async def lifespan(app: FastAPI):
         orchestrator.register_agent("crucible", CrucibleAgent())
         orchestrator.register_agent("brain", brain_service)
         logger.info("Medical brain agents registered: delta, atomization, socratic, crucible, brain")
+    elif settings.enable_medical_brain and not settings.qdrant_url:
+        logger.info("Medical brain disabled — QDRANT_URL not set (SHA-only mode)")
     
     logger.info(f"All agents registered: {list(orchestrator.agents.keys())}")
     
@@ -123,9 +128,9 @@ async def lifespan(app: FastAPI):
     # 5. Wire Whisper → Obsidian dependencies
     whisper_service.set_dependencies(messaging, obsidian)
     
-    # 6. Start file system watchers
+    # 6. Start file system watchers — only if brain is fully configured
     loop = asyncio.get_event_loop()
-    if settings.enable_medical_brain:
+    if settings.enable_medical_brain and settings.qdrant_url:
         from app.services.corpus_ingestion import corpus
         # Obsidian vault watcher: re-index on vault changes
         async def on_vault_change(path, event_type):
@@ -139,13 +144,16 @@ async def lifespan(app: FastAPI):
         whisper_service.start_watching(loop)
         logger.info("Watchers started: Obsidian vault + audio inbox")
     
-    # 7. Set up scheduler
-    scheduler.set_orchestrator(orchestrator)
-    scheduler.set_messaging(messaging)
-    await scheduler.start()
+    # 7. Set up scheduler — only if Redis is configured
+    if settings.redis_url:
+        scheduler.set_orchestrator(orchestrator)
+        scheduler.set_messaging(messaging)
+        await scheduler.start()
+    else:
+        logger.info("Redis not configured — scheduler skipped (SHA-only mode)")
     
-    # 8. Schedule medical brain cron jobs
-    if settings.enable_medical_brain:
+    # 8. Schedule medical brain cron jobs — only if scheduler and brain are active
+    if settings.enable_medical_brain and settings.redis_url and settings.qdrant_url:
         from apscheduler.triggers.cron import CronTrigger
         # Morning brief at 06:30 EAT
         scheduler.scheduler.add_job(
@@ -173,11 +181,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down JARVIS...")
-    if settings.enable_medical_brain:
+    if settings.enable_medical_brain and settings.qdrant_url:
         obsidian.stop_watching()
         whisper_service.stop_watching()
-    await scheduler.stop()
-    await memory.disconnect()
+    if settings.redis_url:
+        await scheduler.stop()
+    if settings.qdrant_url:
+        await memory.disconnect()
     logger.info("JARVIS shutdown complete")
 
 

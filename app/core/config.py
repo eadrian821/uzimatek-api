@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     app_name: str = "JARVIS"
     app_env: str = "development"
     debug: bool = True
-    secret_key: str = Field(min_length=32)
-    
+    secret_key: str = Field(default="uzimatek-default-secret-key-change-in-prod!!")
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -41,18 +41,19 @@ class Settings(BaseSettings):
     voyage_api_key: Optional[str] = None
     voyage_model: str = "voyage-3-lite"   # Fast & accurate for medical text
     
-    # Database — Supabase as single source of truth
+    # Database — Supabase as single source of truth (required for SHA pipeline)
     supabase_url: str
     supabase_key: str
     supabase_service_key: Optional[str] = None
-    database_url: str   # Points to Supabase pooler — DO NOT also configure local postgres
-    
-    # Redis
-    redis_url: str
-    
-    # Qdrant — vector store for RAG
-    qdrant_url: str
-    qdrant_api_key: str
+    # Postgres direct — only needed for JARVIS brain, not SHA pipeline
+    database_url: Optional[str] = None
+
+    # Redis — only needed for JARVIS brain scheduler/celery
+    redis_url: Optional[str] = None
+
+    # Qdrant — vector store for RAG (only needed for JARVIS brain)
+    qdrant_url: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
     qdrant_collection: str = "jarvis_memory"
     # Medical-specific collections
     qdrant_medical_gold: str = "medical_gold_standard"
