@@ -86,46 +86,67 @@ class BaseAgent(ABC):
         the TextBlock in response.content. We always iterate to find the text block
         rather than blindly accessing index 0.
 
-        Pass thinking_budget > 0 to explicitly enable extended thinking on Fable calls.
+        If use_fable_model=True and the Fable 5 call fails for any reason (model
+        not accessible, API error), automatically retries with claude-sonnet-4-6
+        so the pipeline continues even when Fable 5 is unavailable.
         """
+        if use_fable_model:
+            model = self.model_fable
+        elif use_complex_model:
+            model = self.model_complex
+        elif use_balanced_model:
+            model = self.model_balanced
+        else:
+            model = self.model_fast
+
+        kwargs: Dict[str, Any] = dict(
+            model=model,
+            max_tokens=max_tokens,
+            system=system or self.system_prompt,
+            messages=messages,
+        )
+
+        # Fable 5 uses adaptive thinking by default — do NOT pass "enabled"/budget_tokens.
+        # Other extended-thinking models (Opus 4) use the "enabled" mode.
+        if not use_fable_model and thinking_budget > 0:
+            budget = min(thinking_budget, max_tokens - 200)
+            if budget > 0:
+                kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
         try:
-            if use_fable_model:
-                model = self.model_fable
-            elif use_complex_model:
-                model = self.model_complex
-            elif use_balanced_model:
-                model = self.model_balanced
-            else:
-                model = self.model_fast
-
-            kwargs: Dict[str, Any] = dict(
-                model=model,
-                max_tokens=max_tokens,
-                system=system or self.system_prompt,
-                messages=messages,
-            )
-
-            # Fable 5 uses adaptive thinking by default — do NOT pass "enabled"/budget_tokens.
-            # Other extended-thinking models (Opus 4, Sonnet 3.7) use the "enabled" mode.
-            if not use_fable_model and thinking_budget > 0:
-                budget = min(thinking_budget, max_tokens - 200)
-                if budget > 0:
-                    kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-
             response = await self.client.messages.create(**kwargs)
-
-            # Fable 5 (and other extended-thinking models) prepend ThinkingBlock /
-            # RedactedThinkingBlock objects before the TextBlock.  Find the first
-            # block whose type is "text" — never assume index 0.
             for block in response.content:
                 if block.type == "text":
                     return block.text
-
             raise ValueError(
                 f"[{self.name}] No text block in response from {model}. "
                 f"Content types: {[b.type for b in response.content]}"
             )
         except Exception as e:
+            if use_fable_model:
+                # Fable 5 inaccessible (wrong API key tier, model unavailable, etc.)
+                # Fall back to Sonnet so the pipeline continues producing output.
+                logger.warning(
+                    f"[{self.name}] Fable 5 call failed ({type(e).__name__}: {e}). "
+                    f"Retrying with {self.model_balanced}."
+                )
+                try:
+                    fb_kwargs: Dict[str, Any] = dict(
+                        model=self.model_balanced,
+                        max_tokens=max_tokens,
+                        system=system or self.system_prompt,
+                        messages=messages,
+                    )
+                    fb_response = await self.client.messages.create(**fb_kwargs)
+                    for block in fb_response.content:
+                        if block.type == "text":
+                            return block.text
+                    raise ValueError(
+                        f"[{self.name}] No text block in Sonnet fallback response."
+                    )
+                except Exception as fb_e:
+                    logger.error(f"[{self.name}] Sonnet fallback also failed: {fb_e}")
+                    raise fb_e
             logger.error(f"Claude API error in {self.name}: {e}")
             raise
     

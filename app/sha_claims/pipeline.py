@@ -202,11 +202,15 @@ async def run_pipeline(req: ClaimRequest) -> AsyncIterator[str]:
                                 {"sha_ref": sha_ref, "code": rejection_code},
                                 sha_data=data)
         else:
-            sha_status = "error"
+            # SHA UAT unreachable or returned an error (no credentials, 522, etc.)
+            # The 5-agent pipeline ran successfully — claim is coded and ready.
+            # Mark as "queued" for manual or batch resubmission, not "error".
+            sha_status = "queued"
             rejection_reason = sha_resp.get("error")
-            await log_event(claim_id, facility_id, "SHA_RESPONSE_RECEIVED", {
+            await log_event(claim_id, facility_id, "SHA_SUBMISSION_DEFERRED", {
                 "status_code": sha_resp["status_code"],
                 "error": sha_resp.get("error"),
+                "note": "SHA UAT unreachable. Claim fully coded — queued for resubmission.",
             })
 
         from app.sha_claims.models import ClaimSubmissionResult
@@ -220,12 +224,28 @@ async def run_pipeline(req: ClaimRequest) -> AsyncIterator[str]:
         result.submission = submission
         result.status = sha_status
 
+        rejection_detail = None
+        if rejection_code:
+            try:
+                from app.sha_claims.rejection_codes import get_rejection_info
+                info = get_rejection_info(rejection_code)
+                if info:
+                    rejection_detail = {
+                        "description": info["description"],
+                        "fix_action": info["fix_action"],
+                        "appealable": info["appealable"],
+                        "appeal_window_days": info["appeal_window_days"],
+                    }
+            except ImportError:
+                pass
+
         yield _sse("SUBMISSION_COMPLETE", {
             "claim_id": claim_id,
             "sha_ref": sha_ref,
             "status": sha_status,
             "rejection_code": rejection_code,
             "rejection_reason": rejection_reason,
+            "rejection_detail": rejection_detail,
         })
     else:
         result.status = "pipeline_complete_no_submit"

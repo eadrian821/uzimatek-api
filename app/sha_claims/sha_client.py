@@ -10,8 +10,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT_CONNECT = 15.0
-_TIMEOUT_READ = 45.0
+_TIMEOUT_CONNECT = 5.0    # Railway HTTP timeout is 30s; keep SHA calls well within that
+_TIMEOUT_READ = 10.0
 
 
 class SHAClient:
